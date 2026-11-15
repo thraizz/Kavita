@@ -213,7 +213,7 @@ public class ReaderService(IUnitOfWork unitOfWork, ILogger<ReaderService> logger
     /// <param name="userId"></param>
     /// <param name="saveToReadingSession"></param>
     /// <returns></returns>
-    public async Task<bool> SaveReadingProgress(ProgressDto progressDto, int userId, bool saveToReadingSession = true)
+    public async Task<bool> SaveReadingProgress(ProgressDto progressDto, int userId, bool saveToReadingSession = true, bool countFromPreviousProgress = false)
     {
         // Don't let user save past total pages.
         var pageInfo = await CapPageToChapter(progressDto.ChapterId, progressDto.PageNum);
@@ -224,6 +224,8 @@ public class ReaderService(IUnitOfWork unitOfWork, ILogger<ReaderService> logger
         {
             var userProgress = await unitOfWork.AppUserProgressRepository.GetUserProgressAsync(progressDto.ChapterId, userId);
             var oldProgress = userProgress?.PagesRead ?? 0;
+            var oldBookScrollId = userProgress?.BookScrollId;
+            var hadProgress = userProgress != null;
 
             // Don't create an empty progress record if there isn't any progress. This prevents Last Read date from being updated when opening a chapter
             if (userProgress == null && progressDto.PageNum == 0) return true;
@@ -263,8 +265,11 @@ public class ReaderService(IUnitOfWork unitOfWork, ILogger<ReaderService> logger
             {
                 if (saveToReadingSession)
                 {
+                    // Sync clients (KOReader) report progress after many pages, so count from the previously stored progress
+                    int? previousPage = countFromPreviousProgress && hadProgress ? oldProgress : null;
+                    var previousBookScrollId = previousPage.HasValue ? oldBookScrollId : null;
                     BackgroundJob.Enqueue(() => readingSessionService.UpdateProgress(userId, progressDto,
-                        clientInfoAccessor.Current, clientInfoAccessor.CurrentDeviceId));
+                        clientInfoAccessor.Current, clientInfoAccessor.CurrentDeviceId, previousPage, previousBookScrollId));
                 }
 
                 await eventHub.SendMessageAsync(MessageFactory.UserProgressUpdate,

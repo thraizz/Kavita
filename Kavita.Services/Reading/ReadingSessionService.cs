@@ -64,7 +64,8 @@ public sealed class ReadingSessionService : IReadingSessionService, IDisposable,
         );
     }
 
-    public async Task UpdateProgress(int userId, ProgressDto progressDto, ClientInfoData? clientInfo, int? deviceId)
+    public async Task UpdateProgress(int userId, ProgressDto progressDto, ClientInfoData? clientInfo, int? deviceId,
+        int? previousPage = null, string? previousBookScrollId = null)
     {
         // We need to lock per-user as progress events can come fast and duplicate, as we are using new DataContext per Background Task
         var userLock = UserLocks.GetOrAdd(userId, _ => new SemaphoreSlim(1, 1));
@@ -79,9 +80,9 @@ public sealed class ReadingSessionService : IReadingSessionService, IDisposable,
             var context = scope.ServiceProvider.GetRequiredService<IDataContext>();
             var eventHub = scope.ServiceProvider.GetRequiredService<IEventHub>();
 
-            var session = await GetOrCreateSessionAsync(userId, progressDto, context);
+            var session = await GetOrCreateSessionAsync(userId, progressDto, context, previousPage, previousBookScrollId);
 
-            await UpdateActivityDataAsync(session, progressDto, clientInfo, deviceId, scope, context);
+            await UpdateActivityDataAsync(session, progressDto, clientInfo, deviceId, scope, context, previousPage, previousBookScrollId);
 
             session.LastModified = DateTime.Now;
             session.LastModifiedUtc = DateTime.UtcNow;
@@ -231,7 +232,8 @@ public sealed class ReadingSessionService : IReadingSessionService, IDisposable,
     }
 
 
-    private async Task<AppUserReadingSession> GetOrCreateSessionAsync(int userId, ProgressDto dto, IDataContext context)
+    private async Task<AppUserReadingSession> GetOrCreateSessionAsync(int userId, ProgressDto dto, IDataContext context,
+        int? previousPage, string? previousBookScrollId)
     {
         var cutoffUtc = DateTime.UtcNow - _sessionTimeout;
         var midnightToday = DateTime.Today;
@@ -258,7 +260,7 @@ public sealed class ReadingSessionService : IReadingSessionService, IDisposable,
             LastModified = DateTime.Now,
             LastModifiedUtc = DateTime.UtcNow,
             IsActive = true,
-            ActivityData = [NewActivityData(dto, chapterFormat)]
+            ActivityData = [NewActivityData(dto, chapterFormat, previousPage, previousBookScrollId)]
         };
 
         context.AppUserReadingSession.Add(newSession);
@@ -269,7 +271,7 @@ public sealed class ReadingSessionService : IReadingSessionService, IDisposable,
     }
 
     private async Task UpdateActivityDataAsync(AppUserReadingSession session, ProgressDto progressDto, ClientInfoData? clientInfo,
-        int? deviceId, IServiceScope scope, IDataContext context)
+        int? deviceId, IServiceScope scope, IDataContext context, int? previousPage, string? previousBookScrollId)
     {
         var cutoffUtc = DateTime.UtcNow - _sessionTimeout;
 
@@ -287,7 +289,7 @@ public sealed class ReadingSessionService : IReadingSessionService, IDisposable,
         else
         {
             _logger.LogDebug("Updating Session {SessionId} with a new Activity", session.Id);
-            var newActivity = NewActivityData(progressDto, chapterFormat);
+            var newActivity = NewActivityData(progressDto, chapterFormat, previousPage, previousBookScrollId);
             if (clientInfo != null)
             {
                 newActivity.ClientInfo = clientInfo;
@@ -297,6 +299,12 @@ public sealed class ReadingSessionService : IReadingSessionService, IDisposable,
                 newActivity.DeviceIds.Add(deviceId.Value);
             }
             session.ActivityData.Add(newActivity);
+
+            // Started from the previous progress: record what was read up to this update right away
+            if (previousPage.HasValue && previousPage.Value <= progressDto.PageNum)
+            {
+                await UpdateExistingActivityAsync(newActivity, progressDto, clientInfo, deviceId, chapterFormat, scope);
+            }
         }
     }
 
@@ -503,8 +511,17 @@ public sealed class ReadingSessionService : IReadingSessionService, IDisposable,
     private static string GetChapterFormatCacheKey(int chapterId)
         => $"readingsession_chapter_format_{chapterId}";
 
-    private static AppUserReadingSessionActivityData NewActivityData(ProgressDto dto, MangaFormat format)
+    private static AppUserReadingSessionActivityData NewActivityData(ProgressDto dto, MangaFormat format,
+        int? previousPage = null, string? previousBookScrollId = null)
     {
+        if (previousPage.HasValue && previousPage.Value <= dto.PageNum)
+        {
+            return new AppUserReadingSessionActivityData(dto, previousPage.Value, format)
+            {
+                StartBookScrollId = previousBookScrollId
+            };
+        }
+
         var startPage = format == MangaFormat.Epub ? dto.PageNum : Math.Max(dto.PageNum - 1, 0);
 
         return new AppUserReadingSessionActivityData(dto, startPage, format);

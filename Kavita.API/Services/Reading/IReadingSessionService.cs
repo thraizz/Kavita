@@ -9,7 +9,8 @@ namespace Kavita.API.Services.Reading;
 
 public interface IReadingSessionService
 {
-    Task UpdateProgress(int userId, ProgressDto progressDto, ClientInfoData? clientInfo, int? deviceId);
+    Task UpdateProgress(int userId, ProgressDto progressDto, ClientInfoData? clientInfo, int? deviceId,
+        int? previousPage = null, string? previousBookScrollId = null);
 
     /// <summary>
     /// Generate new reading sessions for all chapters in the given series (Incorrect chapterIds are ignored)
