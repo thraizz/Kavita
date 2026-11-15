@@ -15,6 +15,7 @@ export interface ProfileStatBar {
   comicsRead: number;
   pagesRead: number;
   wordsRead: number;
+  printedPagesRead: number;
   authorsRead: number;
   reviews: number;
   ratings: number;

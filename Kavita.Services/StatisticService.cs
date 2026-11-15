@@ -754,10 +754,12 @@ public class StatisticService(ILogger<StatisticService> logger, IDataContext con
                     activity.WordsRead,
                     activity.TotalPages,
                     activity.EndPage,
+                    activity.Format,
                 })
             .ToListAsync(ct);
 
         var result = new ReadingActivityGraphDto();
+        var wordsPerPage = socialPreferences.WordsPerPrintedPage;
 
         if (sessionActivityData.Count > 0)
         {
@@ -771,7 +773,10 @@ public class StatisticService(ILogger<StatisticService> logger, IDataContext con
                         .GroupBy(x => x.SessionId)
                         .Sum(sessionGroup =>
                             (int)(sessionGroup.First().SessionEndUtc - sessionGroup.First().SessionStartUtc).TotalSeconds),
-                    TotalPages = dayGroup.Sum(x => x.PagesRead),
+                    TotalPages = wordsPerPage > 0
+                        ? ToPrintedPages(dayGroup.Where(x => x.Format == MangaFormat.Epub).Sum(x => (long)x.WordsRead), wordsPerPage)
+                          + dayGroup.Where(x => x.Format != MangaFormat.Epub).Sum(x => x.PagesRead)
+                        : dayGroup.Sum(x => x.PagesRead),
                     TotalWords = dayGroup.Sum(x => x.WordsRead),
                     TotalChaptersFullyRead = dayGroup
                         .Where(x => x.PagesRead > 0 && x.TotalPages > 0 && x.EndPage >= x.TotalPages)
@@ -1355,10 +1360,19 @@ public class StatisticService(ILogger<StatisticService> logger, IDataContext con
             ComicsRead = comicsRead,
             PagesRead = (int)pagesRead,
             WordsRead = (int)wordsRead,
+            PrintedPagesRead = ToPrintedPages(wordsRead, socialPreferences.WordsPerPrintedPage),
             AuthorsRead = await authorsTask,
             Reviews = reviewCount,
             Ratings = ratingCount
         };
+    }
+
+    /// <summary>
+    /// Converts words read to printed pages, rounded to the nearest page. Returns 0 when <paramref name="wordsPerPage"/> is not configured.
+    /// </summary>
+    public static int ToPrintedPages(long wordsRead, int wordsPerPage)
+    {
+        return wordsPerPage > 0 ? (int)Math.Round((double)wordsRead / wordsPerPage, MidpointRounding.AwayFromZero) : 0;
     }
 
     public async Task<IList<MostActiveUserDto>> GetMostActiveUsers(StatsFilterDto filter, CancellationToken ct = default)

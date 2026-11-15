@@ -38,6 +38,7 @@ export interface SocialPreferences {
   socialMaxAgeRating: AgeRating;
   socialIncludeUnknowns: boolean;
   shareProfile: boolean;
+  wordsPerPrintedPage: number;
 }
 
 export interface OpdsPreferences {

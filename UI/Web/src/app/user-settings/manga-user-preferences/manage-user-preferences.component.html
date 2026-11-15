@@ -145,6 +145,21 @@
         </div>
 
         <div class="row g-0 mt-4">
+          @if (settingsForm.get('socialPreferences')?.get('wordsPerPrintedPage'); as formControl) {
+            <app-setting-item [title]="t('words-per-printed-page-label')" [subtitle]="t('words-per-printed-page-tooltip')" [canEdit]="!isReadOnly()" [control]="formControl" labelId="words-per-printed-page">
+              <ng-template #view>
+                <span> {{formControl.value}} </span>
+              </ng-template>
+              <ng-template #edit>
+                <input type="number" min="0" id="words-per-printed-page"
+                       formControlName="wordsPerPrintedPage" class="form-control"
+                       aria-labelledby="words-per-printed-page" [appFormField]="formControl">
+              </ng-template>
+            </app-setting-item>
+          }
+        </div>
+
+        <div class="row g-0 mt-4">
           <app-setting-switch [title]="t('share-series-reviews-label')" [subtitle]="t('share-series-reviews-tooltip')">
             <ng-template>
               <div class="form-check form-switch float-end">

@@ -39,4 +39,10 @@ public class AppUserSocialPreferences
     /// UI Site Global Setting: Enable sharing of Profile with other users
     /// </summary>
     public bool ShareProfile { get; set; }
+
+    /// <summary>
+    /// UI Site Global Setting: Words per printed page, used to show read words as printed pages on the profile
+    /// </summary>
+    /// <remarks>0 disables the printed pages stat</remarks>
+    public int WordsPerPrintedPage { get; set; }
 }

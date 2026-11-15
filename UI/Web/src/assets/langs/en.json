@@ -277,6 +277,8 @@
         "social-include-unknowns-tooltip": "Enable social features for series and chapters with an unknown age rating",
         "social-share-profile-label": "Share Profile",
         "social-share-profile-tooltip": "Enable sharing information about your reading activity to other server members",
+        "words-per-printed-page-label": "Words per Printed Page",
+        "words-per-printed-page-tooltip": "Show words read as printed pages on your profile and reading activity, instead of book sections. Around 250-300 for a typical paperback. 0 turns this off",
 
 
         "embed-progress-indicator-label": "Embed Progress Indicator",
@@ -3797,6 +3799,8 @@
         "comics-read-tooltip": "Comics Read: {{count}}",
         "pages-read-label": "Pages Read",
         "pages-read-tooltip": "Pages Read: {{count}}",
+        "printed-pages-read-label": "Printed Pages",
+        "printed-pages-read-tooltip": "Words read as printed pages: {{count}}",
         "words-read-label": "Words Read",
         "words-read-tooltip": "Words Read: {{count}}",
         "authors-read-label": "Authors Read",

@@ -5,6 +5,17 @@
     @if (dataResource.hasValue()) {
       @let data = dataResource.value();
 
+      @if (data?.printedPagesRead) {
+        <div class="col-auto mb-2">
+          <app-icon-and-title [label]="t('printed-pages-read-label')" [clickable]="false"
+                              fontClasses="fa-solid fa-book-open-reader"
+                              [title]="t('printed-pages-read-tooltip', {count: data?.printedPagesRead | number})">
+            {{data?.printedPagesRead | number}}
+          </app-icon-and-title>
+        </div>
+        <div class="vr d-none d-lg-block m-2"></div>
+      }
+
       <div class="col-auto mb-2">
         <app-icon-and-title [label]="t('books-read-label')" [clickable]="false"
                             fontClasses="fa-solid fa-book"
@@ -23,15 +34,17 @@
       </div>
       <div class="vr d-none d-lg-block m-2"></div>
 
-      <div class="col-auto mb-2 clickable">
-        <app-icon-and-title [label]="t('pages-read-label')" [clickable]="false"
-                            fontClasses="fa-solid fa-file"
-                            (clicked)="openPageByYearList()"
-                            [title]="t('pages-read-tooltip', {count: data?.pagesRead | number})">
-          {{data?.pagesRead | number}}
-        </app-icon-and-title>
-      </div>
-      <div class="vr d-none d-lg-block m-2"></div>
+      @if (!data?.printedPagesRead) {
+        <div class="col-auto mb-2 clickable">
+          <app-icon-and-title [label]="t('pages-read-label')" [clickable]="false"
+                              fontClasses="fa-solid fa-file"
+                              (clicked)="openPageByYearList()"
+                              [title]="t('pages-read-tooltip', {count: data?.pagesRead | number})">
+            {{data?.pagesRead | number}}
+          </app-icon-and-title>
+        </div>
+        <div class="vr d-none d-lg-block m-2"></div>
+      }
 
       <div class="col-auto mb-2 clickable">
         <app-icon-and-title [label]="t('words-read-label')" [clickable]="false"
