@@ -56,6 +56,7 @@ public static class ApplicationServiceExtensions
         services.AddScoped<IPersonService, PersonService>();
         services.AddScoped<IReadingProfileService, ReadingProfileService>();
         services.AddScoped<IKoreaderService, KoreaderService>();
+        services.AddScoped<HardcoverSyncService>();
         services.AddScoped<IFontService, FontService>();
         services.AddScoped<IAnnotationService, AnnotationService>();
         services.AddScoped<IOpdsService, OpdsService>();

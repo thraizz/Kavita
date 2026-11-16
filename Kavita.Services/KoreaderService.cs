@@ -1,5 +1,6 @@
 using System.Threading;
 using System.Threading.Tasks;
+using Hangfire;
 using Kavita.API.Database;
 using Kavita.API.Services;
 using Kavita.API.Services.Reading;
@@ -69,7 +70,13 @@ public class KoreaderService(
             userProgressDto.ChapterId, userProgressDto.SeriesId);
 
         // Normal saving from kavita will be //body/h2[1]
-        await readerService.SaveReadingProgress(userProgressDto, userId, countFromPreviousProgress: true);
+        if (await readerService.SaveReadingProgress(userProgressDto, userId, countFromPreviousProgress: true)
+            && HardcoverSyncService.Token != null)
+        {
+            var percentage = koreaderBookDto.percentage > 0 ? koreaderBookDto.percentage
+                : file.Pages > 0 ? (float) userProgressDto.PageNum / file.Pages : 0;
+            BackgroundJob.Enqueue<HardcoverSyncService>(s => s.SyncProgress(file.ChapterId, percentage));
+        }
     }
 
     /// <summary>
