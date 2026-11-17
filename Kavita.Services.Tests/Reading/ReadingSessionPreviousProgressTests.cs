@@ -102,4 +102,46 @@ public class ReadingSessionPreviousProgressTests(ITestOutputHelper helper): Abst
         Assert.Equal(24, activity.StartPage);
         Assert.Equal(1, activity.PagesRead);
     }
+
+    [Fact]
+    public void EstimateSyncReadingTime_UsesReadingSpeed()
+    {
+        var end = new DateTime(2026, 11, 16, 22, 0, 0);
+        var duration = ReadingSessionService.EstimateSyncReadingTime(2230, end, end, end.AddHours(-3));
+        Assert.Equal(10, duration.TotalMinutes, 3);
+    }
+
+    [Fact]
+    public void EstimateSyncReadingTime_CappedByTimeSincePreviousProgress()
+    {
+        var end = new DateTime(2026, 11, 16, 22, 0, 0);
+        var duration = ReadingSessionService.EstimateSyncReadingTime(22300, end, end, end.AddMinutes(-20));
+        Assert.Equal(TimeSpan.FromMinutes(20), duration);
+    }
+
+    [Fact]
+    public void EstimateSyncReadingTime_NeverBeforeLocalMidnight()
+    {
+        var end = new DateTime(2026, 11, 17, 0, 32, 0);
+        var duration = ReadingSessionService.EstimateSyncReadingTime(12474, end.AddHours(-1), end, null);
+        Assert.Equal(TimeSpan.FromMinutes(32), duration);
+    }
+
+    [Fact]
+    public void EstimateSyncReadingTime_NoWords_NoTime()
+    {
+        var end = new DateTime(2026, 11, 16, 22, 0, 0);
+        Assert.Equal(TimeSpan.Zero, ReadingSessionService.EstimateSyncReadingTime(0, end, end, end.AddHours(-1)));
+    }
+
+    [Fact]
+    public async Task UpdateProgress_WithoutWords_KeepsZeroDuration()
+    {
+        var (context, service, dto) = await Setup();
+
+        await service.UpdateProgress(1, dto, null, null, previousPage: 10, previousProgressUtc: DateTime.UtcNow.AddHours(-1));
+
+        var activity = await SingleActivity(context);
+        Assert.Equal(activity.StartTimeUtc, activity.EndTimeUtc!.Value, TimeSpan.FromSeconds(5));
+    }
 }

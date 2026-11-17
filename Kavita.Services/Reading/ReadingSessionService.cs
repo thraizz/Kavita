@@ -65,7 +65,7 @@ public sealed class ReadingSessionService : IReadingSessionService, IDisposable,
     }
 
     public async Task UpdateProgress(int userId, ProgressDto progressDto, ClientInfoData? clientInfo, int? deviceId,
-        int? previousPage = null, string? previousBookScrollId = null)
+        int? previousPage = null, string? previousBookScrollId = null, DateTime? previousProgressUtc = null)
     {
         // We need to lock per-user as progress events can come fast and duplicate, as we are using new DataContext per Background Task
         var userLock = UserLocks.GetOrAdd(userId, _ => new SemaphoreSlim(1, 1));
@@ -82,7 +82,13 @@ public sealed class ReadingSessionService : IReadingSessionService, IDisposable,
 
             var session = await GetOrCreateSessionAsync(userId, progressDto, context, previousPage, previousBookScrollId);
 
-            await UpdateActivityDataAsync(session, progressDto, clientInfo, deviceId, scope, context, previousPage, previousBookScrollId);
+            var activity = await UpdateActivityDataAsync(session, progressDto, clientInfo, deviceId, scope, context, previousPage, previousBookScrollId);
+
+            // Sync clients (KOReader) only report positions, so the activity would last 0 seconds. Estimate it.
+            if (previousPage.HasValue && activity != null)
+            {
+                ApplySyncReadingTime(session, activity, previousProgressUtc);
+            }
 
             session.LastModified = DateTime.Now;
             session.LastModifiedUtc = DateTime.UtcNow;
@@ -270,7 +276,54 @@ public sealed class ReadingSessionService : IReadingSessionService, IDisposable,
         return newSession;
     }
 
-    private async Task UpdateActivityDataAsync(AppUserReadingSession session, ProgressDto progressDto, ClientInfoData? clientInfo,
+    /// <summary>
+    /// Reading speed used to estimate the time between two sync updates. Measured from KOReader statistics
+    /// (sum of words / sum of page seconds over 11 Kindle syncs, 2026-11-11..17).
+    /// </summary>
+    public const double SyncWordsPerMinute = 223;
+
+    /// <summary>
+    /// How long reading <paramref name="wordsRead"/> words took, for a sync update at <paramref name="endTime"/>:
+    /// words / <see cref="SyncWordsPerMinute"/>, at most the time since the previous progress update,
+    /// and never before local midnight (a session starting on the previous day gets closed at that day's end).
+    /// </summary>
+    public static TimeSpan EstimateSyncReadingTime(int wordsRead, DateTime endTimeUtc, DateTime endTime, DateTime? previousProgressUtc)
+    {
+        if (wordsRead <= 0) return TimeSpan.Zero;
+
+        var duration = TimeSpan.FromMinutes(wordsRead / SyncWordsPerMinute);
+        if (previousProgressUtc.HasValue && previousProgressUtc.Value <= endTimeUtc)
+        {
+            var sincePrevious = endTimeUtc - previousProgressUtc.Value;
+            if (sincePrevious < duration) duration = sincePrevious;
+        }
+
+        var sinceMidnight = endTime - endTime.Date;
+        if (sinceMidnight < duration) duration = sinceMidnight;
+
+        return duration;
+    }
+
+    private static void ApplySyncReadingTime(AppUserReadingSession session, AppUserReadingSessionActivityData activity,
+        DateTime? previousProgressUtc)
+    {
+        if (activity.EndTime == null || activity.EndTimeUtc == null) return;
+
+        var duration = EstimateSyncReadingTime(activity.WordsRead, activity.EndTimeUtc.Value, activity.EndTime.Value, previousProgressUtc);
+        var start = activity.EndTime.Value - duration;
+        if (start >= activity.StartTime) return;
+
+        activity.StartTime = start;
+        activity.StartTimeUtc = activity.EndTimeUtc.Value - duration;
+
+        if (activity.StartTime < session.StartTime)
+        {
+            session.StartTime = activity.StartTime;
+            session.StartTimeUtc = activity.StartTimeUtc;
+        }
+    }
+
+    private async Task<AppUserReadingSessionActivityData?> UpdateActivityDataAsync(AppUserReadingSession session, ProgressDto progressDto, ClientInfoData? clientInfo,
         int? deviceId, IServiceScope scope, IDataContext context, int? previousPage, string? previousBookScrollId)
     {
         var cutoffUtc = DateTime.UtcNow - _sessionTimeout;
@@ -285,6 +338,7 @@ public sealed class ReadingSessionService : IReadingSessionService, IDisposable,
         {
             _logger.LogDebug("Updating Session {SessionId} with an existing Activity {ActivityId}", session.Id,  existingActivity.Id);
             await UpdateExistingActivityAsync(existingActivity, progressDto, clientInfo, deviceId, chapterFormat, scope);
+            return existingActivity;
         }
         else
         {
@@ -305,6 +359,8 @@ public sealed class ReadingSessionService : IReadingSessionService, IDisposable,
             {
                 await UpdateExistingActivityAsync(newActivity, progressDto, clientInfo, deviceId, chapterFormat, scope);
             }
+
+            return newActivity;
         }
     }
 

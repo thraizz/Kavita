@@ -225,6 +225,7 @@ public class ReaderService(IUnitOfWork unitOfWork, ILogger<ReaderService> logger
             var userProgress = await unitOfWork.AppUserProgressRepository.GetUserProgressAsync(progressDto.ChapterId, userId);
             var oldProgress = userProgress?.PagesRead ?? 0;
             var oldBookScrollId = userProgress?.BookScrollId;
+            var oldProgressUtc = userProgress?.LastModifiedUtc;
             var hadProgress = userProgress != null;
 
             // Don't create an empty progress record if there isn't any progress. This prevents Last Read date from being updated when opening a chapter
@@ -268,8 +269,10 @@ public class ReaderService(IUnitOfWork unitOfWork, ILogger<ReaderService> logger
                     // Sync clients (KOReader) report progress after many pages, so count from the previously stored progress
                     int? previousPage = countFromPreviousProgress && hadProgress ? oldProgress : null;
                     var previousBookScrollId = previousPage.HasValue ? oldBookScrollId : null;
+                    DateTime? previousProgressUtc = previousPage.HasValue ? oldProgressUtc : null;
                     BackgroundJob.Enqueue(() => readingSessionService.UpdateProgress(userId, progressDto,
-                        clientInfoAccessor.Current, clientInfoAccessor.CurrentDeviceId, previousPage, previousBookScrollId));
+                        clientInfoAccessor.Current, clientInfoAccessor.CurrentDeviceId, previousPage, previousBookScrollId,
+                        previousProgressUtc));
                 }
 
                 await eventHub.SendMessageAsync(MessageFactory.UserProgressUpdate,
