@@ -87,7 +87,7 @@ public sealed class ReadingSessionService : IReadingSessionService, IDisposable,
             // Sync clients (KOReader) only report positions, so the activity would last 0 seconds. Estimate it.
             if (previousPage.HasValue && activity != null)
             {
-                ApplySyncReadingTime(session, activity, previousProgressUtc);
+                ApplySyncReadingTime(context, session, activity, previousProgressUtc);
             }
 
             session.LastModified = DateTime.Now;
@@ -285,7 +285,7 @@ public sealed class ReadingSessionService : IReadingSessionService, IDisposable,
     /// <summary>
     /// How long reading <paramref name="wordsRead"/> words took, for a sync update at <paramref name="endTime"/>:
     /// words / <see cref="SyncWordsPerMinute"/>, at most the time since the previous progress update,
-    /// and never before local midnight (a session starting on the previous day gets closed at that day's end).
+    /// and never before the previous day's local midnight.
     /// </summary>
     public static TimeSpan EstimateSyncReadingTime(int wordsRead, DateTime endTimeUtc, DateTime endTime, DateTime? previousProgressUtc)
     {
@@ -298,23 +298,78 @@ public sealed class ReadingSessionService : IReadingSessionService, IDisposable,
             if (sincePrevious < duration) duration = sincePrevious;
         }
 
-        var sinceMidnight = endTime - endTime.Date;
-        if (sinceMidnight < duration) duration = sinceMidnight;
+        var sinceYesterday = endTime - endTime.Date.AddDays(-1);
+        if (sinceYesterday < duration) duration = sinceYesterday;
 
         return duration;
     }
 
-    private static void ApplySyncReadingTime(AppUserReadingSession session, AppUserReadingSessionActivityData activity,
-        DateTime? previousProgressUtc)
+    internal static void ApplySyncReadingTime(IDataContext context, AppUserReadingSession session,
+        AppUserReadingSessionActivityData activity, DateTime? previousProgressUtc)
     {
         if (activity.EndTime == null || activity.EndTimeUtc == null) return;
 
-        var duration = EstimateSyncReadingTime(activity.WordsRead, activity.EndTimeUtc.Value, activity.EndTime.Value, previousProgressUtc);
-        var start = activity.EndTime.Value - duration;
+        var end = activity.EndTime.Value;
+        var endUtc = activity.EndTimeUtc.Value;
+        var duration = EstimateSyncReadingTime(activity.WordsRead, endUtc, end, previousProgressUtc);
+        var start = end - duration;
+        var startUtc = endUtc - duration;
         if (start >= activity.StartTime) return;
 
+        // Reading that started before midnight belongs to the previous day. A session can't span midnight
+        // (CloseSession ends it at its start day's end), so the part before midnight gets its own closed session.
+        var midnight = end.Date;
+        if (start < midnight)
+        {
+            var before = midnight - start;
+            var midnightUtc = startUtc + before;
+            var fraction = before.TotalSeconds / duration.TotalSeconds;
+            var pagesBefore = (int) Math.Round(activity.PagesRead * fraction);
+            var wordsBefore = (int) Math.Round(activity.WordsRead * fraction);
+
+            var previousDay = new AppUserReadingSessionActivityData
+            {
+                Format = activity.Format,
+                ChapterId = activity.ChapterId,
+                VolumeId = activity.VolumeId,
+                SeriesId = activity.SeriesId,
+                LibraryId = activity.LibraryId,
+                StartPage = activity.StartPage,
+                EndPage = activity.StartPage + pagesBefore,
+                StartBookScrollId = activity.StartBookScrollId,
+                StartTime = start,
+                StartTimeUtc = startUtc,
+                EndTime = midnight.AddTicks(-1),
+                EndTimeUtc = midnightUtc.AddTicks(-1),
+                PagesRead = pagesBefore,
+                WordsRead = wordsBefore,
+                TotalPages = activity.TotalPages,
+                TotalWords = activity.TotalWords,
+                ClientInfo = CopyClientInfo(activity.ClientInfo),
+                DeviceIds = [..activity.DeviceIds],
+            };
+            context.AppUserReadingSession.Add(new AppUserReadingSession
+            {
+                AppUserId = session.AppUserId,
+                IsActive = false,
+                StartTime = previousDay.StartTime,
+                StartTimeUtc = previousDay.StartTimeUtc,
+                EndTime = previousDay.EndTime,
+                EndTimeUtc = previousDay.EndTimeUtc,
+                LastModified = DateTime.Now,
+                LastModifiedUtc = DateTime.UtcNow,
+                ActivityData = [previousDay],
+            });
+
+            activity.StartPage += pagesBefore;
+            activity.PagesRead -= pagesBefore;
+            activity.WordsRead -= wordsBefore;
+            start = midnight;
+            startUtc = midnightUtc;
+        }
+
         activity.StartTime = start;
-        activity.StartTimeUtc = activity.EndTimeUtc.Value - duration;
+        activity.StartTimeUtc = startUtc;
 
         if (activity.StartTime < session.StartTime)
         {
@@ -323,13 +378,19 @@ public sealed class ReadingSessionService : IReadingSessionService, IDisposable,
         }
     }
 
+    private static ClientInfoData? CopyClientInfo(ClientInfoData? clientInfo) => clientInfo == null
+        ? null
+        : System.Text.Json.JsonSerializer.Deserialize<ClientInfoData>(System.Text.Json.JsonSerializer.Serialize(clientInfo));
+
     private async Task<AppUserReadingSessionActivityData?> UpdateActivityDataAsync(AppUserReadingSession session, ProgressDto progressDto, ClientInfoData? clientInfo,
         int? deviceId, IServiceScope scope, IDataContext context, int? previousPage, string? previousBookScrollId)
     {
         var cutoffUtc = DateTime.UtcNow - _sessionTimeout;
 
+        // Sync clients: each update counts from the previous progress, so never extend an earlier activity
+        // (it would recount from its own start, and its pre-midnight part may already be split off)
         var existingActivity = session.ActivityData
-            .Where(d => d.EndTimeUtc == null || d.EndTimeUtc >= cutoffUtc) // End time works as a LastModified
+            .Where(d => d.EndTimeUtc == null || (!previousPage.HasValue && d.EndTimeUtc >= cutoffUtc)) // End time works as a LastModified
             .FirstOrDefault(d => d.ChapterId == progressDto.ChapterId);
 
         var chapterFormat = await GetChapterFormatAsync(progressDto.ChapterId, context);
