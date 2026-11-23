@@ -1211,7 +1211,7 @@ public class StatisticService(ILogger<StatisticService> logger, IDataContext con
         filter.StartDate = filter.StartDate < sessionRecordedSince.RanAt ? sessionRecordedSince.RanAt : filter.StartDate;
 
         var sessions = await context.AppUserReadingSessionActivityData
-            .ApplyStatsFilter(filter, userId, socialPreferences, requestingUser, isAggregate: true)
+            .ApplyStatsFilter(filter, userId, socialPreferences, requestingUser, isAggregate: true, onlyCompleted: false)
             .Where(session => session.ReadingSession.CreatedUtc > sessionRecordedSince.RanAt)
             .Select(s => new
             {

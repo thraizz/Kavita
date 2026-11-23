@@ -1,4 +1,5 @@
 using Kavita.Models.DTOs.Progress;
+using Kavita.Models.Entities.Enums;
 using Kavita.Services.Helpers;
 
 namespace Kavita.Services.Tests.Helpers;
@@ -107,6 +108,42 @@ public class KoreaderHelperTests
         // Should remain unchanged
         Assert.Equal(5, actual.PageNum);
         Assert.Equal("//body/p[1]", actual.BookScrollId);
+    }
+
+    #endregion
+
+    #region MarkFinishedAtEnd Tests
+
+    [Theory]
+    [InlineData(40, 41, 1.0f, MangaFormat.Epub, 41)]    // last fragment at the end of the book: finished
+    [InlineData(40, 41, 0.97f, MangaFormat.Epub, 41)]
+    [InlineData(40, 41, 0.9f, MangaFormat.Epub, 40)]    // last fragment, not at the end yet
+    [InlineData(40, 41, 0f, MangaFormat.Epub, 40)]      // client sent no percentage
+    [InlineData(39, 41, 1.0f, MangaFormat.Epub, 39)]    // not the last fragment
+    [InlineData(0, 1, 0.5f, MangaFormat.Epub, 0)]       // single-fragment EPUB halfway through
+    [InlineData(41, 41, 1.0f, MangaFormat.Epub, 41)]    // already finished
+    [InlineData(99, 100, 0f, MangaFormat.Pdf, 100)]     // last PDF page
+    [InlineData(98, 100, 0.99f, MangaFormat.Pdf, 98)]
+    [InlineData(5, 0, 1.0f, MangaFormat.Epub, 5)]       // unknown page count
+    public void MarkFinishedAtEnd(int pageNum, int totalPages, float percentage, MangaFormat format, int expected)
+    {
+        var progress = EmptyProgressDto();
+        progress.PageNum = pageNum;
+
+        KoreaderHelper.MarkFinishedAtEnd(progress, totalPages, percentage, format);
+
+        Assert.Equal(expected, progress.PageNum);
+    }
+
+    [Fact]
+    public void GetKoreaderPosition_FinishedChapter_ClampsToLastFragment()
+    {
+        var given = EmptyProgressDto();
+        given.PageNum = 41;
+        given.BookScrollId = "//body/div/p[3]";
+
+        Assert.Equal("/body/DocFragment[41]/body/div/p[3].0", KoreaderHelper.GetKoreaderPosition(given, 41));
+        Assert.Equal("/body/DocFragment[42]/body/div/p[3].0", KoreaderHelper.GetKoreaderPosition(given));
     }
 
     #endregion

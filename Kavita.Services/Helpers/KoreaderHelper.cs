@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using Kavita.Models.DTOs.Progress;
+using Kavita.Models.Entities.Enums;
 
 namespace Kavita.Services.Helpers;
 
@@ -143,6 +144,24 @@ public static partial class KoreaderHelper
         }
     }
 
+    /// <summary>
+    /// KOReader progress at or above this percentage counts as the end of an EPUB.
+    /// </summary>
+    public const float FinishedPercentage = 0.97f;
+
+    /// <summary>
+    /// Kavita marks a chapter read when PageNum == totalPages. KOReader reports the 0-based fragment or page it is on,
+    /// so the furthest it can report is totalPages - 1 and a book read on KOReader never counts as finished.
+    /// Moves progress on the last fragment (EPUB: only once KOReader is at <see cref="FinishedPercentage"/>) or the last page to totalPages.
+    /// </summary>
+    public static void MarkFinishedAtEnd(ProgressDto progress, int totalPages, float percentage, MangaFormat format)
+    {
+        if (totalPages <= 0 || progress.PageNum < totalPages - 1) return;
+        if (format == MangaFormat.Epub && percentage < FinishedPercentage) return;
+
+        progress.PageNum = totalPages;
+    }
+
     private static int GetPageNumber(string[] path, int offset = 2)
     {
         if (offset >= path.Length) return 0;
@@ -163,10 +182,12 @@ public static partial class KoreaderHelper
     /// </remarks>
     /// <param name="progressDto"></param>
     /// <returns></returns>
-    public static string GetKoreaderPosition(ProgressDto? progressDto)
+    public static string GetKoreaderPosition(ProgressDto? progressDto, int totalPages = 0)
     {
-        // Add 1 back to match KOReader's 1-based indexing
+        // Add 1 back to match KOReader's 1-based indexing.
+        // A finished chapter is stored as PageNum == totalPages, one past the last fragment, so clamp to the last fragment.
         var fragmentIndex = (progressDto?.PageNum ?? 0) + 1;
+        if (totalPages > 0) fragmentIndex = Math.Min(fragmentIndex, totalPages);
 
         if (string.IsNullOrEmpty(progressDto?.BookScrollId))
         {

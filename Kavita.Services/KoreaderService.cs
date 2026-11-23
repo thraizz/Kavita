@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Hangfire;
@@ -64,6 +65,7 @@ public class KoreaderService(
         // Update the bookScrollId if possible
         var reportedProgress = koreaderBookDto.progress;
         KoreaderHelper.UpdateProgressDto(userProgressDto, koreaderBookDto.progress);
+        KoreaderHelper.MarkFinishedAtEnd(userProgressDto, file.Pages, koreaderBookDto.percentage, file.Format);
 
         logger.LogDebug("Converted KOReader progress from {ProgressEncoding} to Page {PageNum} with ScrollId: {ScrollId}. For Chapter {ChapterId} in Series {SeriesId}",
             reportedProgress.Sanitize(), userProgressDto.PageNum, userProgressDto.BookScrollId?.Sanitize() ?? string.Empty,
@@ -100,10 +102,10 @@ public class KoreaderService(
         var progressDto = await unitOfWork.AppUserProgressRepository.GetUserProgressDtoAsync(file.ChapterId, userId, ct);
 
         // Non-epubs use the pageNum as the progress. KOReader is 1-index based
-        var koreaderProgress = $"{progressDto?.PageNum + 1 ?? 0}";
+        var koreaderProgress = $"{(progressDto == null ? 0 : Math.Min(progressDto.PageNum + 1, Math.Max(file.Pages, 1)))}";
         if (file.Format == MangaFormat.Epub)
         {
-            koreaderProgress = KoreaderHelper.GetKoreaderPosition(progressDto);
+            koreaderProgress = KoreaderHelper.GetKoreaderPosition(progressDto, file.Pages);
         }
 
         var response = new KoreaderBookDtoBuilder(bookHash)
